@@ -8,16 +8,16 @@ const MOCK_DATA = {
     name: "John Smith",
     birthDate: "1985-03-15",
     gender: "male",
+    bloodGroup: "O+",
+    pcp: {
+      id: "pcp-001",
+      name: "Dr. Jane Williams",
+      phone: "(555) 987-6543",
+      address: "456 Medical Center, Anytown, NY 12345"
+    },
     address: "123 Main St, Anytown, NY 12345",
     phone: "(555) 123-4567",
-    email: "john.smith@email.com",
-    bloodGroup: "A+",
-    pcp: {
-      name: "Dr. Sarah Wilson",
-      phone: "(555) 999-8888",
-      address: "456 Medical Center Ave, Anytown, NY 12345"
-    },
-    qrCode: null
+    email: "john.smith@email.com"
   },
   allergies: [
     {
@@ -87,11 +87,8 @@ class FHIRService {
       // Step 4: Fetch emergency contacts
       const emergencyContacts = await this.getEmergencyContacts(patientId);
       
-      // Step 5: Fetch PCP information
-      const pcp = await this.getPCP(patientId);
-      
       // Transform FHIR resources to our app format
-      return this.transformFHIRData(patient, allergies, emergencyContacts, pcp);
+      return this.transformFHIRData(patient, allergies, emergencyContacts);
       
     } catch (error) {
       console.error('Error fetching FHIR data:', error);
@@ -133,7 +130,7 @@ class FHIRService {
     });
   }
 
-  transformFHIRData(patient, allergies, emergencyContacts, pcp) {
+  transformFHIRData(patient, allergies, emergencyContacts) {
     // Extract patient name
     const name = patient.name && patient.name[0] 
       ? `${patient.name[0].given?.join(' ') || ''} ${patient.name[0].family || ''}`.trim()
@@ -150,32 +147,24 @@ class FHIRService {
     // Extract email
     const email = patient.telecom?.find(t => t.system === 'email')?.value || 'Email not available';
 
-    // Extract blood group
+    // Extract blood group from extensions
     const bloodGroup = patient.extension?.find(ext => 
-      ext.url === 'http://hl7.org/fhir/StructureDefinition/blood-group'
-    )?.valueString || 'Blood group not available';
+      ext.url === 'http://hl7.org/fhir/StructureDefinition/patient-bloodGroup'
+    )?.valueCodeableConcept?.text || 'Blood group not available';
 
-    // Extract PCP information from practitioner reference
-    const pcpInfo = {
+    // Extract PCP information
+    const pcpReference = patient.generalPractitioner?.[0];
+    const pcp = pcpReference ? {
+      id: pcpReference.reference,
+      name: pcpReference.display || 'PCP name not available',
+      phone: 'PCP phone not available',
+      address: 'PCP address not available'
+    } : {
+      id: 'not-available',
       name: 'PCP not available',
       phone: 'Phone not available',
       address: 'Address not available'
     };
-
-    if (pcp.entry && pcp.entry.length > 0) {
-      const pcpResource = pcp.entry[0].resource;
-      pcpInfo.name = `${pcpResource.name?.[0]?.given?.join(' ') || ''} ${pcpResource.name?.[0]?.family || ''}`.trim();
-      pcpInfo.phone = pcpResource.telecom?.find(t => t.system === 'phone')?.value || 'Phone not available';
-      pcpInfo.address = `${pcpResource.address?.[0]?.line?.join(', ') || ''}, ${pcpResource.address?.[0]?.city || ''}, ${pcpResource.address?.[0]?.state || ''} ${pcpResource.address?.[0]?.postalCode || ''}`.trim();
-    }
-
-    // Generate QR code data
-    const qrCodeData = JSON.stringify({
-      id: patient.id,
-      name: name,
-      bloodGroup: bloodGroup,
-      emergencyPhone: phone
-    });
 
     return {
       patient: {
@@ -183,12 +172,11 @@ class FHIRService {
         name: name,
         birthDate: patient.birthDate || 'Birth date not available',
         gender: patient.gender || 'Gender not specified',
+        bloodGroup: bloodGroup,
+        pcp: pcp,
         address: address,
         phone: phone,
-        email: email,
-        bloodGroup: bloodGroup,
-        pcp: pcpInfo,
-        qrCode: qrCodeData
+        email: email
       },
       allergies: this.transformAllergies(allergies),
       emergencyContacts: this.transformEmergencyContacts(emergencyContacts)
@@ -328,32 +316,6 @@ class FHIRService {
       return data;
     } catch (error) {
       console.error('Error fetching emergency contacts:', error);
-      throw error;
-    }
-  }
-
-  async getPCP(patientId) {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/Practitioner?_id=${patientId}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/fhir+json',
-            'Content-Type': 'application/fhir+json'
-          }
-        }
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('PCP data:', data);
-      return data;
-    } catch (error) {
-      console.error('Error fetching PCP:', error);
       throw error;
     }
   }

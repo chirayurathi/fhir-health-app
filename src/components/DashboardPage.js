@@ -306,7 +306,17 @@ const DashboardPage = () => {
     const selectedData = {};
 
     if (selectedItems.has('patient')) {
-      selectedData.patient = healthData.patient;
+      const { name, birthDate, gender, bloodGroup, pcp, address, phone, email } = healthData.patient;
+      selectedData.patient = {
+        name: name || 'N/A',
+        birthDate: birthDate || 'N/A',
+        gender: gender || 'N/A',
+        bloodGroup: bloodGroup || 'N/A',
+        pcp: pcp || { name: 'N/A', phone: 'N/A' },
+        address: address || 'N/A',
+        phone: phone || 'N/A',
+        email: email || 'N/A'
+      };
     }
 
     // Collect selected allergies
@@ -337,6 +347,8 @@ const DashboardPage = () => {
       result += `Name: ${data.patient.name}\n`;
       result += `Birth Date: ${data.patient.birthDate}\n`;
       result += `Gender: ${data.patient.gender}\n`;
+      result += `Blood Group: ${data.patient.bloodGroup}\n`;
+      result += `PCP: ${data.patient.pcp.name} (${data.patient.pcp.phone})\n`;
       result += `Address: ${data.patient.address}\n`;
       result += `Phone: ${data.patient.phone}\n`;
       result += `Email: ${data.patient.email}\n\n`;
@@ -651,10 +663,13 @@ const DashboardPage = () => {
               <DataContent>
                 <DataLabel>Personal Information</DataLabel>
                 <DataValue>
-                  {healthData.patient.name} • {healthData.patient.gender} • Born {healthData.patient.birthDate}
+                  {healthData.patient.name || 'N/A'} • {healthData.patient.gender || 'N/A'} • Born {healthData.patient.birthDate || 'N/A'}
                 </DataValue>
                 <DataValue>
-                  {healthData.patient.address} • {healthData.patient.phone} • {healthData.patient.email}
+                  Blood Group: {healthData.patient.bloodGroup || 'N/A'} • PCP: {healthData.patient.pcp?.name || 'N/A'}
+                </DataValue>
+                <DataValue>
+                  {healthData.patient.address || 'N/A'} • {healthData.patient.phone || 'N/A'} • {healthData.patient.email || 'N/A'}
                 </DataValue>
               </DataContent>
             </DataItem>

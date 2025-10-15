@@ -89,6 +89,8 @@ const QRCodeGenerator = ({ data }) => {
       result += `Name: ${data.patient.name}\n`;
       result += `Birth Date: ${data.patient.birthDate}\n`;
       result += `Gender: ${data.patient.gender}\n`;
+      result += `Blood Group: ${data.patient.bloodGroup}\n`;
+      result += `PCP: ${data.patient.pcp?.name} (${data.patient.pcp?.phone})\n`;
       result += `Address: ${data.patient.address}\n`;
       result += `Phone: ${data.patient.phone}\n`;
       result += `Email: ${data.patient.email}\n\n`;
