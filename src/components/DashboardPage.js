@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { MdLogout, MdPerson, MdFavorite, MdGroup, MdQrCode, MdContentCopy, MdCheck } from 'react-icons/md';
+import { MdLogout, MdPerson, MdFavorite, MdGroup, MdQrCode, MdContentCopy, MdCheck, MdDownload } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { fhirService } from '../services/fhirService';
 import QRCodeGenerator from './QRCodeGenerator';
+import html2canvas from 'html2canvas';
 
 const DashboardContainer = styled.div`
   min-height: 100vh;
@@ -107,7 +108,39 @@ const SectionTitle = styled.h2`
   margin-bottom: 1.5rem;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+`;
+
+const SectionTitleLeft = styled.div`
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
+`;
+
+const DownloadButton = styled.button`
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  width: 32px;
+  height: 32px;
+
+  &:hover {
+    background: #5a67d8;
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    background: #a0aec0;
+    cursor: not-allowed;
+    transform: none;
+  }
 `;
 
 const DataItem = styled.div`
@@ -295,16 +328,263 @@ const DashboardPage = () => {
     return selectedData;
   };
 
+  const formatDataForPreview = (data) => {
+    let result = '';
+    
+    // Patient information
+    if (data.patient) {
+      result += 'PATIENT INFO\n';
+      result += `Name: ${data.patient.name}\n`;
+      result += `Birth Date: ${data.patient.birthDate}\n`;
+      result += `Gender: ${data.patient.gender}\n`;
+      result += `Address: ${data.patient.address}\n`;
+      result += `Phone: ${data.patient.phone}\n`;
+      result += `Email: ${data.patient.email}\n\n`;
+    }
+    
+    // Allergies
+    if (data.allergies && data.allergies.length > 0) {
+      result += 'ALLERGIES\n';
+      data.allergies.forEach((allergy, index) => {
+        result += `Substance: ${allergy.substance}\n`;
+        result += `Severity: ${allergy.severity}\n`;
+        result += `Status: ${allergy.status}\n`;
+        if (index < data.allergies.length - 1) {
+          result += '\n';
+        }
+      });
+      result += '\n';
+    }
+    
+    // Emergency Contacts
+    if (data.emergencyContacts && data.emergencyContacts.length > 0) {
+      result += 'EMERGENCY CONTACTS\n';
+      data.emergencyContacts.forEach((contact, index) => {
+        result += `Name: ${contact.name}\n`;
+        result += `Relationship: ${contact.relationship}\n`;
+        result += `Phone: ${contact.phone}\n`;
+        if (index < data.emergencyContacts.length - 1) {
+          result += '\n';
+        }
+      });
+    }
+    
+    return result.trim();
+  };
+
   const copyToClipboard = async () => {
     const selectedData = getSelectedData();
-    const jsonString = JSON.stringify(selectedData, null, 2);
+    const formattedString = formatDataForPreview(selectedData);
     
     try {
-      await navigator.clipboard.writeText(jsonString);
+      await navigator.clipboard.writeText(formattedString);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
+  const downloadQRCode = () => {
+    const selectedData = getSelectedData();
+    const hasData = Object.keys(selectedData).length > 0;
+    
+    if (!hasData) {
+      console.log('No data selected for download');
+      return;
+    }
+    
+    console.log('Starting QR code download...');
+    
+    // Find the QR code SVG element more specifically - look for the QR code component's SVG
+    let qrCodeElement = null;
+    
+    // Try to find the QR code container with logo
+    const qrCodeWithLogo = document.querySelector('[data-testid="qr-code-with-logo"]');
+    if (qrCodeWithLogo) {
+      qrCodeElement = qrCodeWithLogo;
+      console.log('Found QR code with logo container via data-testid');
+    } else {
+      // Fallback to the old method
+      const qrCodeContainer = document.querySelector('[data-testid="qr-code"]');
+      if (qrCodeContainer) {
+        // Find the parent container that includes the logo (QRCodeWithLogo)
+        const qrWithLogo = qrCodeContainer.closest('div[style*="position: relative"]');
+        if (qrWithLogo) {
+          qrCodeElement = qrWithLogo;
+          console.log('Found QR code with logo container');
+        } else {
+          qrCodeElement = qrCodeContainer.querySelector('svg');
+          console.log('Found QR code via data-testid fallback');
+        }
+      }
+    }
+    
+    // Fallback: look for SVG within the QR code wrapper
+    if (!qrCodeElement) {
+      const qrWrapper = document.querySelector('div[style*="padding: 1rem"]'); // QRCodeWrapper styling
+      if (qrWrapper) {
+        qrCodeElement = qrWrapper.querySelector('svg');
+        console.log('Found QR code via wrapper fallback');
+      }
+    }
+    
+    // Last resort: find the largest SVG (QR codes are typically larger than icons)
+    if (!qrCodeElement) {
+      const allSvgs = document.querySelectorAll('svg');
+      let largestSvg = null;
+      let largestArea = 0;
+      
+      allSvgs.forEach(svg => {
+        const rect = svg.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        if (area > largestArea) {
+          largestArea = area;
+          largestSvg = svg;
+        }
+      });
+      
+      if (largestSvg && largestArea > 10000) { // QR codes are typically large
+        qrCodeElement = largestSvg;
+        console.log('Found QR code via largest SVG fallback');
+      }
+    }
+    
+    if (!qrCodeElement) {
+      console.error('QR code SVG element not found');
+      console.log('Available SVG elements:', document.querySelectorAll('svg'));
+      console.log('SVG sizes:', Array.from(document.querySelectorAll('svg')).map(svg => {
+        const rect = svg.getBoundingClientRect();
+        return `${rect.width}x${rect.height}`;
+      }));
+      return;
+    }
+    
+    console.log('Found QR code SVG element:', qrCodeElement);
+    
+    try {
+      // Check if we found the container with logo or just the SVG
+      const isContainer = qrCodeElement.tagName !== 'svg';
+      
+      if (isContainer) {
+        // Use html2canvas approach for container with logo
+        console.log('Using container approach for QR code with logo');
+        
+        // Install html2canvas if not available
+        if (typeof html2canvas === 'undefined') {
+          console.log('html2canvas not available, falling back to SVG approach');
+          const svg = qrCodeElement.querySelector('svg');
+          if (svg) {
+            qrCodeElement = svg;
+          } else {
+            throw new Error('No SVG found in container');
+          }
+        } else {
+          // Use html2canvas to capture the entire container
+          html2canvas(qrCodeElement, {
+            backgroundColor: 'white',
+            scale: 2,
+            width: 200,
+            height: 200
+          }).then(canvas => {
+            canvas.toBlob((blob) => {
+              if (blob) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `health-qr-code-${new Date().toISOString().split('T')[0]}.png`;
+                link.style.display = 'none';
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                URL.revokeObjectURL(url);
+                console.log('QR code with logo PNG download initiated');
+              }
+            }, 'image/png', 1.0);
+          }).catch(error => {
+            console.error('html2canvas error:', error);
+            throw error;
+          });
+          return; // Exit early for html2canvas approach
+        }
+      }
+      
+      // Fallback to SVG approach
+      console.log('Using SVG approach');
+      
+      // Get the bounding box of the SVG
+      const svgRect = qrCodeElement.getBoundingClientRect();
+      console.log('SVG dimensions:', svgRect);
+      
+      // Create a canvas with higher resolution for better quality
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const scale = 2; // Higher resolution
+      canvas.width = 200 * scale;
+      canvas.height = 200 * scale;
+      
+      // Set white background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Clone and modify the SVG
+      const svgClone = qrCodeElement.cloneNode(true);
+      svgClone.setAttribute('width', '200');
+      svgClone.setAttribute('height', '200');
+      svgClone.setAttribute('viewBox', '0 0 200 200');
+      
+      // Get the SVG data as string with proper namespace
+      const svgData = new XMLSerializer().serializeToString(svgClone);
+      console.log('SVG data:', svgData.substring(0, 200) + '...');
+      
+      // Create a data URL with proper MIME type and encoding
+      const svgDataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgData)))}`;
+      
+      // Create an image from the SVG data
+      const img = new Image();
+      img.onload = function() {
+        console.log('Image loaded successfully');
+        
+        // Scale the context for higher resolution
+        ctx.scale(scale, scale);
+        
+        // Draw the image on canvas
+        ctx.drawImage(img, 0, 0, 200, 200);
+        
+        // Convert canvas to blob and download
+        canvas.toBlob((blob) => {
+          if (blob) {
+            console.log('Canvas blob created, size:', blob.size);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `health-qr-code-${new Date().toISOString().split('T')[0]}.png`;
+            link.style.display = 'none';
+            
+            // Trigger download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up
+            URL.revokeObjectURL(url);
+            console.log('QR code PNG download initiated');
+          } else {
+            console.error('Failed to create blob from canvas');
+          }
+        }, 'image/png', 1.0);
+      };
+      
+      img.onerror = function() {
+        console.error('Failed to load SVG as image');
+      };
+      
+      img.src = svgDataUrl;
+      
+    } catch (error) {
+      console.error('Error downloading QR code:', error);
     }
   };
 
@@ -356,8 +636,10 @@ const DashboardPage = () => {
         <DataSection>
           <CategorySection>
             <SectionTitle>
-              <MdPerson size={20} />
-              Demographics
+              <SectionTitleLeft>
+                <MdPerson size={20} />
+                Demographics
+              </SectionTitleLeft>
             </SectionTitle>
             <DataItem>
               <Checkbox
@@ -380,8 +662,10 @@ const DashboardPage = () => {
 
           <CategorySection>
             <SectionTitle>
-              <MdFavorite size={20} />
-              Allergies ({healthData.allergies.length})
+              <SectionTitleLeft>
+                <MdFavorite size={20} />
+                Allergies ({healthData.allergies.length})
+              </SectionTitleLeft>
             </SectionTitle>
             {healthData.allergies.map((allergy) => (
               <DataItem key={allergy.id}>
@@ -403,8 +687,10 @@ const DashboardPage = () => {
 
           <CategorySection>
             <SectionTitle>
-              <MdGroup size={20} />
-              Emergency Contacts ({healthData.emergencyContacts.length})
+              <SectionTitleLeft>
+                <MdGroup size={20} />
+                Emergency Contacts ({healthData.emergencyContacts.length})
+              </SectionTitleLeft>
             </SectionTitle>
             {healthData.emergencyContacts.map((contact) => (
               <DataItem key={contact.id}>
@@ -427,8 +713,17 @@ const DashboardPage = () => {
 
         <QRCodeSection>
           <SectionTitle>
-            <MdQrCode size={20} />
-            QR Code Generator
+            <SectionTitleLeft>
+              <MdQrCode size={20} />
+              QR Code Generator
+            </SectionTitleLeft>
+            <DownloadButton 
+              onClick={downloadQRCode} 
+              disabled={Object.keys(getSelectedData()).length === 0}
+              title="Download QR Code"
+            >
+              <MdDownload size={16} />
+            </DownloadButton>
           </SectionTitle>
           
           <QRCodeContainer>
@@ -438,13 +733,13 @@ const DashboardPage = () => {
             
             <JSONPreview>
               <JSONCode>
-                {JSON.stringify(getSelectedData(), null, 2)}
+                {formatDataForPreview(getSelectedData())}
               </JSONCode>
             </JSONPreview>
             
             <CopyButton onClick={copyToClipboard} disabled={Object.keys(getSelectedData()).length === 0}>
               {copied ? <MdCheck size={16} /> : <MdContentCopy size={16} />}
-              {copied ? 'Copied!' : 'Copy JSON'}
+              {copied ? 'Copied!' : 'Copy Text'}
             </CopyButton>
           </QRCodeContainer>
         </QRCodeSection>

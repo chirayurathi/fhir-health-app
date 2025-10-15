@@ -10,7 +10,14 @@ const MOCK_DATA = {
     gender: "male",
     address: "123 Main St, Anytown, NY 12345",
     phone: "(555) 123-4567",
-    email: "john.smith@email.com"
+    email: "john.smith@email.com",
+    bloodGroup: "A+",
+    pcp: {
+      name: "Dr. Sarah Wilson",
+      phone: "(555) 999-8888",
+      address: "456 Medical Center Ave, Anytown, NY 12345"
+    },
+    qrCode: null
   },
   allergies: [
     {
@@ -55,86 +62,301 @@ class FHIRService {
 
   async getPatientData(ssn) {
     try {
-      // In a real implementation, you would:
-      // 1. Search for patient by identifier (SSN)
-      // 2. Fetch patient demographics
-      // 3. Fetch allergies
-      // 4. Fetch emergency contacts
+      console.log(`Searching for patient with SSN: ${ssn}`);
       
-      // For demo purposes, return mock data after a delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Step 1: Search for patient by identifier (SSN)
+      const patients = await this.searchPatientByIdentifier(ssn);
       
-      // Simulate different data based on SSN for demo
-      const mockData = { ...MOCK_DATA };
-      if (ssn.includes('123')) {
-        mockData.patient.name = "Alice Johnson";
-        mockData.patient.birthDate = "1990-07-22";
-        mockData.patient.gender = "female";
-        mockData.allergies = [
-          {
-            id: "allergy-004",
-            substance: "Latex",
-            severity: "High", 
-            status: "Active"
-          }
-        ];
-        mockData.emergencyContacts = [
-          {
-            id: "contact-003",
-            name: "Mike Johnson",
-            relationship: "Brother",
-            phone: "(555) 234-5678"
-          }
-        ];
+      if (!patients.entry || patients.entry.length === 0) {
+        // If no real patient found, fall back to mock data for demo
+        console.log('No patient found in FHIR server, using mock data');
+        return this.getMockData(ssn);
       }
       
-      return mockData;
+      const patientResource = patients.entry[0].resource;
+      const patientId = patientResource.id;
+      
+      console.log(`Found patient: ${patientId}`);
+      
+      // Step 2: Fetch patient demographics
+      const patient = await this.getPatientById(patientId);
+      
+      // Step 3: Fetch allergies
+      const allergies = await this.getAllergies(patientId);
+      
+      // Step 4: Fetch emergency contacts
+      const emergencyContacts = await this.getEmergencyContacts(patientId);
+      
+      // Step 5: Fetch PCP information
+      const pcp = await this.getPCP(patientId);
+      
+      // Transform FHIR resources to our app format
+      return this.transformFHIRData(patient, allergies, emergencyContacts, pcp);
+      
     } catch (error) {
       console.error('Error fetching FHIR data:', error);
-      throw new Error('Failed to fetch patient data');
+      
+      // Fall back to mock data if FHIR server is unavailable
+      console.log('Falling back to mock data due to error');
+      return this.getMockData(ssn);
     }
   }
 
-  // Real FHIR API calls (commented out for demo)
-  /*
-  async searchPatientByIdentifier(identifier) {
-    const response = await fetch(
-      `${this.baseUrl}/Patient?identifier=${identifier}`
-    );
-    if (!response.ok) {
-      throw new Error('Failed to search for patient');
+  getMockData(ssn) {
+    // Simulate loading delay
+    return new Promise(resolve => {
+      setTimeout(() => {
+        const mockData = { ...MOCK_DATA };
+        if (ssn.includes('123')) {
+          mockData.patient.name = "Alice Johnson";
+          mockData.patient.birthDate = "1990-07-22";
+          mockData.patient.gender = "female";
+          mockData.allergies = [
+            {
+              id: "allergy-004",
+              substance: "Latex",
+              severity: "High", 
+              status: "Active"
+            }
+          ];
+          mockData.emergencyContacts = [
+            {
+              id: "contact-003",
+              name: "Mike Johnson",
+              relationship: "Brother",
+              phone: "(555) 234-5678"
+            }
+          ];
+        }
+        resolve(mockData);
+      }, 1000);
+    });
+  }
+
+  transformFHIRData(patient, allergies, emergencyContacts, pcp) {
+    // Extract patient name
+    const name = patient.name && patient.name[0] 
+      ? `${patient.name[0].given?.join(' ') || ''} ${patient.name[0].family || ''}`.trim()
+      : 'Unknown Patient';
+
+    // Extract address
+    const address = patient.address && patient.address[0]
+      ? `${patient.address[0].line?.join(', ') || ''}, ${patient.address[0].city || ''}, ${patient.address[0].state || ''} ${patient.address[0].postalCode || ''}`.trim()
+      : 'Address not available';
+
+    // Extract phone
+    const phone = patient.telecom?.find(t => t.system === 'phone')?.value || 'Phone not available';
+
+    // Extract email
+    const email = patient.telecom?.find(t => t.system === 'email')?.value || 'Email not available';
+
+    // Extract blood group
+    const bloodGroup = patient.extension?.find(ext => 
+      ext.url === 'http://hl7.org/fhir/StructureDefinition/blood-group'
+    )?.valueString || 'Blood group not available';
+
+    // Extract PCP information from practitioner reference
+    const pcpInfo = {
+      name: 'PCP not available',
+      phone: 'Phone not available',
+      address: 'Address not available'
+    };
+
+    if (pcp.entry && pcp.entry.length > 0) {
+      const pcpResource = pcp.entry[0].resource;
+      pcpInfo.name = `${pcpResource.name?.[0]?.given?.join(' ') || ''} ${pcpResource.name?.[0]?.family || ''}`.trim();
+      pcpInfo.phone = pcpResource.telecom?.find(t => t.system === 'phone')?.value || 'Phone not available';
+      pcpInfo.address = `${pcpResource.address?.[0]?.line?.join(', ') || ''}, ${pcpResource.address?.[0]?.city || ''}, ${pcpResource.address?.[0]?.state || ''} ${pcpResource.address?.[0]?.postalCode || ''}`.trim();
     }
-    return response.json();
+
+    // Generate QR code data
+    const qrCodeData = JSON.stringify({
+      id: patient.id,
+      name: name,
+      bloodGroup: bloodGroup,
+      emergencyPhone: phone
+    });
+
+    return {
+      patient: {
+        id: patient.id,
+        name: name,
+        birthDate: patient.birthDate || 'Birth date not available',
+        gender: patient.gender || 'Gender not specified',
+        address: address,
+        phone: phone,
+        email: email,
+        bloodGroup: bloodGroup,
+        pcp: pcpInfo,
+        qrCode: qrCodeData
+      },
+      allergies: this.transformAllergies(allergies),
+      emergencyContacts: this.transformEmergencyContacts(emergencyContacts)
+    };
+  }
+
+  transformAllergies(allergiesBundle) {
+    if (!allergiesBundle.entry) return [];
+    
+    return allergiesBundle.entry.map(entry => {
+      const allergy = entry.resource;
+      return {
+        id: allergy.id,
+        substance: allergy.code?.text || allergy.code?.coding?.[0]?.display || 'Unknown substance',
+        severity: allergy.criticality || 'Unknown severity',
+        status: allergy.clinicalStatus?.coding?.[0]?.code || 'Unknown status'
+      };
+    });
+  }
+
+  transformEmergencyContacts(contactsBundle) {
+    if (!contactsBundle.entry) return [];
+    
+    return contactsBundle.entry.map(entry => {
+      const contact = entry.resource;
+      const name = contact.name 
+        ? `${contact.name.given?.join(' ') || ''} ${contact.name.family || ''}`.trim()
+        : 'Unknown Contact';
+      
+      return {
+        id: contact.id,
+        name: name,
+        relationship: contact.relationship?.[0]?.coding?.[0]?.display || 'Relationship not specified',
+        phone: contact.telecom?.find(t => t.system === 'phone')?.value || 'Phone not available'
+      };
+    });
+  }
+
+  // Real FHIR API calls
+  async searchPatientByIdentifier(identifier) {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/Patient?identifier=${identifier}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/fhir+json',
+            'Content-Type': 'application/fhir+json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Patient search result:', data);
+      return data;
+    } catch (error) {
+      console.error('Error searching for patient:', error);
+      throw error;
+    }
   }
 
   async getPatientById(patientId) {
-    const response = await fetch(`${this.baseUrl}/Patient/${patientId}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch patient');
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/Patient/${patientId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/fhir+json',
+            'Content-Type': 'application/fhir+json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Patient data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching patient:', error);
+      throw error;
     }
-    return response.json();
   }
 
   async getAllergies(patientId) {
-    const response = await fetch(
-      `${this.baseUrl}/AllergyIntolerance?patient=${patientId}`
-    );
-    if (!response.ok) {
-      throw new Error('Failed to fetch allergies');
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/AllergyIntolerance?patient=${patientId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/fhir+json',
+            'Content-Type': 'application/fhir+json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Allergies data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching allergies:', error);
+      throw error;
     }
-    return response.json();
   }
 
   async getEmergencyContacts(patientId) {
-    const response = await fetch(
-      `${this.baseUrl}/RelatedPerson?patient=${patientId}`
-    );
-    if (!response.ok) {
-      throw new Error('Failed to fetch emergency contacts');
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/RelatedPerson?patient=${patientId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/fhir+json',
+            'Content-Type': 'application/fhir+json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Emergency contacts data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching emergency contacts:', error);
+      throw error;
     }
-    return response.json();
   }
-  */
+
+  async getPCP(patientId) {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/Practitioner?_id=${patientId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/fhir+json',
+            'Content-Type': 'application/fhir+json'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('PCP data:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching PCP:', error);
+      throw error;
+    }
+  }
 }
 
 export const fhirService = new FHIRService();

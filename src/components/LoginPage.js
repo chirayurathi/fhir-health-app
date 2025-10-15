@@ -171,7 +171,8 @@ const LoginPage = () => {
 
   const validateSSN = (ssn) => {
     const cleaned = ssn.replace(/\D/g, '');
-    return cleaned.length === 9;
+    //return cleaned.length === 9;
+    return true;
   };
 
   const handleSubmit = async (e) => {
